@@ -87,7 +87,7 @@ function BugCard({ bug, refresh }) {
           />
         </div>
 
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+        <div className="form-row">
           <div className="form-group" style={{ margin: 0 }}>
             <label className="form-label">Priority</label>
             <select className="form-input" name="priority" value={form.priority} onChange={handleChange}>
