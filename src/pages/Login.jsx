@@ -39,7 +39,8 @@ function Login() {
     e.preventDefault();
     setLoading(true);
     try {
-      const res = await API.post("/auth/login", form);
+      const payload = { ...form, email: form.email.trim() };
+      const res = await API.post("/auth/login", payload);
       saveToken(res.data.token);
       navigate("/dashboard");
     } catch (err) {
@@ -53,7 +54,7 @@ function Login() {
     e.preventDefault();
     setLoading(true);
     try {
-      await API.post("/auth/forgot-password", { email: forgotEmail });
+      await API.post("/auth/forgot-password", { email: forgotEmail.trim() });
       setForgotSent(true);
     } catch (err) {
       setError(err.response?.data?.error || "Failed to send reset email. Try again.");
@@ -106,6 +107,9 @@ function Login() {
                     value={forgotEmail}
                     onChange={(e) => setForgotEmail(e.target.value)}
                     required
+                    autoCapitalize="none"
+                    autoCorrect="off"
+                    autoComplete="email"
                   />
                 </div>
                 <button className="btn btn-primary" type="submit" disabled={loading}>
@@ -157,6 +161,9 @@ function Login() {
                   value={form.email}
                   onChange={handleChange}
                   required
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  autoComplete="email"
                 />
               </div>
 

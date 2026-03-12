@@ -38,7 +38,8 @@ function Register() {
     }
     setLoading(true);
     try {
-      await API.post("/auth/register", form);
+      const payload = { ...form, email: form.email.trim() };
+      await API.post("/auth/register", payload);
       navigate("/");
     } catch (err) {
       setError(err.response?.data?.message || "Registration failed");
@@ -108,6 +109,9 @@ function Register() {
               value={form.email}
               onChange={handleChange}
               required
+              autoCapitalize="none"
+              autoCorrect="off"
+              autoComplete="email"
             />
           </div>
 
