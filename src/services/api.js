@@ -2,7 +2,7 @@ import axios from "axios";
 import { logout } from "../utils/auth";
 
 const API = axios.create({
-  baseURL: "http://localhost:5000/api",
+  baseURL: import.meta.env.VITE_API_URL || "https://bug-track-backend-jz4l.onrender.com/api",
 });
 
 /* ── Attach JWT to every request ── */
