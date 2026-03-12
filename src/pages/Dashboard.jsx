@@ -54,9 +54,9 @@ function Dashboard() {
   });
 
   /* ── Stats ── */
-  const openCount     = bugs.filter((b) => (b.status || "open") === "open").length;
-  const progressCount = bugs.filter((b) => b.status === "in-progress").length;
-  const resolvedCount = bugs.filter((b) => b.status === "resolved").length;
+  const openCount     = filtered.filter((b) => (b.status || "open") === "open").length;
+  const progressCount = filtered.filter((b) => b.status === "in-progress").length;
+  const resolvedCount = filtered.filter((b) => b.status === "resolved").length;
 
   return (
     <div className="dashboard-layout">
