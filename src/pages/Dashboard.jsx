@@ -8,6 +8,10 @@ import { useTheme } from "../utils/theme";
 
 const PRIORITY_FILTERS = ["all", "high", "medium", "low"];
 const STATUS_FILTERS   = ["all", "open", "in-progress", "resolved"];
+const SORT_OPTIONS    = [
+  { value: "newest",  label: "Newest first" },
+  { value: "oldest",  label: "Oldest first" },
+];
 
 const PRIORITY_DOT = { high: "#ef4444", medium: "#eab308", low: "#22c55e" };
 
@@ -17,6 +21,7 @@ function Dashboard() {
   const [priorityF, setPriorityF] = useState("all");
   const [statusF, setStatusF]     = useState("all");
   const [search, setSearch]       = useState("");
+  const [sortBy, setSortBy]       = useState("newest");
   const navigate = useNavigate();
   const { theme, toggleTheme } = useTheme();
 
@@ -53,10 +58,17 @@ function Dashboard() {
     return matchPriority && matchStatus && matchSearch;
   });
 
-  /* ── Stats ── */
-  const openCount     = filtered.filter((b) => (b.status || "open") === "open").length;
-  const progressCount = filtered.filter((b) => b.status === "in-progress").length;
-  const resolvedCount = filtered.filter((b) => b.status === "resolved").length;
+  /* ── Sort by date (createdAt) ── */
+  const sorted = [...filtered].sort((a, b) => {
+    const dateA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+    const dateB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+    return sortBy === "newest" ? dateB - dateA : dateA - dateB;
+  });
+
+  /* ── Stats (from all bugs) ── */
+  const openCount     = bugs.filter((b) => (b.status || "open") === "open").length;
+  const progressCount = bugs.filter((b) => (b.status || "").toLowerCase() === "in-progress").length;
+  const resolvedCount = bugs.filter((b) => (b.status || "").toLowerCase() === "resolved").length;
 
   return (
     <div className="dashboard-layout">
@@ -162,6 +174,31 @@ function Dashboard() {
             ))}
           </div>
 
+          {/* Sort by date */}
+          <div className="filter-group">
+            <span className="filter-label">Sort</span>
+            <select
+              className="form-input filter-sort"
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value)}
+              aria-label="Sort bugs by date"
+              style={{
+                padding: "6px 10px",
+                borderRadius: 8,
+                border: "1px solid var(--border)",
+                background: "var(--bg-surface)",
+                color: "var(--text-primary)",
+                fontSize: 13,
+                minWidth: 140,
+                cursor: "pointer",
+              }}
+            >
+              {SORT_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>{opt.label}</option>
+              ))}
+            </select>
+          </div>
+
           {/* Active count */}
           {(priorityF !== "all" || statusF !== "all" || search) && (
             <button
@@ -190,7 +227,7 @@ function Dashboard() {
           </div>
         ) : (
           <div className="bug-grid">
-            {filtered.map((bug) => (
+            {sorted.map((bug) => (
               <BugCard key={bug._id} bug={bug} refresh={fetchBugs} />
             ))}
           </div>
