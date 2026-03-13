@@ -12,9 +12,16 @@ function BugForm({ refresh }) {
   const [teamId, setTeamId] = useState("");
   const [assignedTo, setAssignedTo] = useState("");
   const [teamMembers, setTeamMembers] = useState([]);
+  const [allUsers, setAllUsers] = useState([]);
   const [loading, setLoading] = useState(false);
 
   const [isOpen, setIsOpen] = useState(false);
+
+  useEffect(() => {
+    API.get("/users")
+      .then((r) => setAllUsers(Array.isArray(r.data) ? r.data : []))
+      .catch(() => setAllUsers([]));
+  }, []);
 
   useEffect(() => {
     if (!teamId) {
@@ -27,6 +34,16 @@ function BugForm({ refresh }) {
       .catch(() => setTeamMembers([]));
     setAssignedTo("");
   }, [teamId]);
+
+  const assigneeOptions = teamId && teamMembers.length > 0 ? teamMembers : allUsers;
+  const getAssigneeLabel = (m) => {
+    const u = m?.user ?? m;
+    return u?.name || u?.email || "Unknown";
+  };
+  const getAssigneeId = (m) => {
+    const u = m?.user ?? m;
+    return (u?._id ?? u)?.toString?.() || u;
+  };
 
   const createBug = async (e) => {
     e.preventDefault();
@@ -105,7 +122,7 @@ function BugForm({ refresh }) {
             <TeamSelector value={teamId} onChange={setTeamId} placeholder="Personal (no team)" />
           </div>
 
-          {teamId && teamMembers.length > 0 && (
+          {assigneeOptions.length > 0 && (
             <div className="form-group" style={{ marginTop: "14px" }}>
               <label className="form-label">Assign to <span style={{ color: "var(--text-muted)" }}>(optional)</span></label>
               <select
@@ -114,14 +131,9 @@ function BugForm({ refresh }) {
                 onChange={(e) => setAssignedTo(e.target.value)}
               >
                 <option value="">Unassigned</option>
-                {teamMembers.map((m) => {
-                  const u = m.user;
-                  const uid = u?._id?.toString() || u;
-                  const name = u?.name || u?.email || "Unknown";
-                  return (
-                    <option key={uid} value={uid}>{name}</option>
-                  );
-                })}
+                {assigneeOptions.map((m) => (
+                  <option key={getAssigneeId(m)} value={getAssigneeId(m)}>{getAssigneeLabel(m)}</option>
+                ))}
               </select>
             </div>
           )}

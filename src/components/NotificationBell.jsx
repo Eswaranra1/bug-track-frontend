@@ -12,7 +12,11 @@ export default function NotificationBell() {
       const res = await notificationService.getNotifications();
       setData(res);
     } catch (err) {
-      console.error(err);
+      // Backend may be offline or CORS/network issue — keep UI usable
+      setData({ notifications: [], unreadCount: 0 });
+      if (import.meta.env.DEV) {
+        console.warn("Notifications unavailable:", err.message || "Network error");
+      }
     }
   };
 

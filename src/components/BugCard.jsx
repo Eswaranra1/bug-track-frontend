@@ -25,6 +25,7 @@ function BugCard({ bug, refresh }) {
     status:      bug.status      || "open",
   });
   const [saving, setSaving] = useState(false);
+  const [deleteError, setDeleteError] = useState(null);
 
   const handleChange = (e) =>
     setForm({ ...form, [e.target.name]: e.target.value });
@@ -54,11 +55,14 @@ function BugCard({ bug, refresh }) {
   };
 
   const deleteBug = async () => {
+    setDeleteError(null);
     try {
       await API.delete(`/bugs/${bug._id}`);
       refresh();
     } catch (err) {
-      console.error("Delete failed");
+      const msg = err.response?.data?.message || err.message || "Delete failed";
+      setDeleteError(msg);
+      if (import.meta.env.DEV) console.error("Delete failed", err);
     }
   };
 
@@ -149,6 +153,13 @@ function BugCard({ bug, refresh }) {
           {bug.assignedTo && <span>Assigned to {bug.assignedTo.name}</span>}
           {bug.assignedTo && bug.teamId && " · "}
           {bug.teamId && <span>Team: {bug.teamId.name}</span>}
+        </div>
+      )}
+
+      {deleteError && (
+        <div role="alert" style={{ fontSize: 12, color: "var(--danger)", marginBottom: 8, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+          <span>{deleteError}</span>
+          <button type="button" className="btn btn-ghost btn-sm" onClick={() => setDeleteError(null)} aria-label="Dismiss">✕</button>
         </div>
       )}
 

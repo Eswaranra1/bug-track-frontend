@@ -30,16 +30,17 @@ function Dashboard() {
   const [pagination, setPagination] = useState({ page: 1, limit: 50, total: 0, totalPages: 1 });
   const [searchParams] = useSearchParams();
   const view = searchParams.get("view");
+  const [teamGroupBy, setTeamGroupBy] = useState("team"); // "team" | "assignee" for view=team
 
   const fetchBugs = useCallback(async (page = 1) => {
     setLoading(true);
     setFetchError(null);
     try {
       const opt = SORT_OPTIONS.find((o) => o.value === sortBy) || SORT_OPTIONS[0];
-      const scopeMap = { my: "mine", created: "created", team: "team" };
-      const scope = scopeMap[view] || undefined;
+      const scopeMap = { all: "all", my: "mine", created: "created", team: "team" };
+      const scope = scopeMap[view] ?? "all";
       const params = {
-        ...(scope ? { scope } : {}),
+        scope,
         ...(teamId ? { teamId } : {}),
         ...(priorityF !== "all" ? { priority: priorityF } : {}),
         ...(statusF !== "all" ? { status: statusF } : {}),
@@ -66,9 +67,9 @@ function Dashboard() {
   /* Fetch server-side stats so counts match current view (scope) */
   const fetchStats = useCallback(async () => {
     try {
-      const scopeMap = { my: "mine", created: "created", team: "team" };
-      const scope = scopeMap[view] || undefined;
-      const res = await API.get("/analytics/bugs", { params: scope ? { scope } : {} });
+      const scopeMap = { all: "all", my: "mine", created: "created", team: "team" };
+      const scope = scopeMap[view] ?? "all";
+      const res = await API.get("/analytics/bugs", { params: { scope } });
       const d = res.data;
       setStats({
         total: d.total ?? 0,
@@ -101,6 +102,46 @@ function Dashboard() {
   });
   const sorted = filtered;
 
+  /* ── Team view: group bugs by team or by assignee (each user/email shown) ── */
+  const getTeamKey = (bug) => {
+    const t = bug.teamId;
+    return t?.name || t?._id?.toString() || "_no_team";
+  };
+  const getTeamLabel = (bug) => {
+    const t = bug.teamId;
+    return t?.name || "No team";
+  };
+  const getAssigneeKey = (bug) => {
+    const a = bug.assignedTo;
+    return a?.email || a?.name || a?._id?.toString() || "_unassigned";
+  };
+  const getAssigneeLabel = (bug) => {
+    const a = bug.assignedTo;
+    if (!a) return "Unassigned";
+    return a.name ? `${a.name} (${a.email || ""})` : (a.email || "Unknown");
+  };
+  const isTeamView = view === "team";
+  const groupedByTeam = isTeamView && teamGroupBy === "team"
+    ? Object.entries(
+        sorted.reduce((acc, bug) => {
+          const key = getTeamKey(bug);
+          if (!acc[key]) acc[key] = [];
+          acc[key].push(bug);
+          return acc;
+        }, {})
+      ).map(([key, list]) => ({ key, label: getTeamLabel(list[0]), bugs: list }))
+    : [];
+  const groupedByAssignee = isTeamView && teamGroupBy === "assignee"
+    ? Object.entries(
+        sorted.reduce((acc, bug) => {
+          const key = getAssigneeKey(bug);
+          if (!acc[key]) acc[key] = [];
+          acc[key].push(bug);
+          return acc;
+        }, {})
+      ).map(([key, list]) => ({ key, label: getAssigneeLabel(list[0]), bugs: list }))
+    : [];
+
   /* ── Stats: use server-side analytics (normalize keys to lowercase); fallback to current bugs when counts missing ── */
   const rawByStatus = stats?.byStatus ?? {};
   const byStatus = Object.fromEntries(
@@ -126,12 +167,12 @@ function Dashboard() {
         <h1>Bug Dashboard</h1>
         <p>
           {view === "my"
-            ? "Bugs assigned to you across all projects."
+            ? "Only bugs assigned to you — your account only, not shared with others."
             : view === "created"
             ? "Bugs you created."
             : view === "team"
-            ? "Bugs in your teams."
-            : "All bugs visible to you — created by you, assigned to you, or in your teams."}
+            ? "Bugs in your teams — split by team or by assignee (each person’s bugs)."
+            : "All bugs from everyone — open to all users."}
         </p>
       </div>
 
@@ -279,6 +320,21 @@ function Dashboard() {
           )}
         </div>
 
+        {/* Team view: group by team or assignee */}
+        {isTeamView && sorted.length > 0 && (
+          <div className="filter-group" style={{ marginBottom: 16 }}>
+            <span style={{ fontSize: 12, fontWeight: 600, color: "var(--text-muted)", marginRight: 8 }}>Group by:</span>
+            <label style={{ display: "inline-flex", alignItems: "center", gap: 6, cursor: "pointer", fontSize: 13 }}>
+              <input type="radio" name="teamGroupBy" checked={teamGroupBy === "team"} onChange={() => setTeamGroupBy("team")} />
+              Team
+            </label>
+            <label style={{ display: "inline-flex", alignItems: "center", gap: 6, cursor: "pointer", fontSize: 13, marginLeft: 12 }}>
+              <input type="radio" name="teamGroupBy" checked={teamGroupBy === "assignee"} onChange={() => setTeamGroupBy("assignee")} />
+              Assignee (each person / email)
+            </label>
+          </div>
+        )}
+
         {/* Bug Section Label */}
         <div className="bugs-section-title">
           {filtered.length} {filtered.length === 1 ? "Bug" : "Bugs"}
@@ -294,6 +350,44 @@ function Dashboard() {
               : "Try adjusting your priority or status filters"}
             </p>
           </div>
+        ) : isTeamView && (groupedByTeam.length > 0 || groupedByAssignee.length > 0) ? (
+          <>
+            {teamGroupBy === "team" && groupedByTeam.map(({ key, label, bugs: groupBugs }) => (
+              <div key={key} className="team-bugs-group" style={{ marginBottom: 28 }}>
+                <h3 className="bugs-section-title" style={{ fontSize: 15, marginBottom: 12, display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ background: "var(--accent-dim)", color: "var(--accent-light)", padding: "4px 10px", borderRadius: 8 }}>Team: {label}</span>
+                  <span style={{ fontSize: 12, fontWeight: 500, color: "var(--text-muted)" }}>({groupBugs.length})</span>
+                </h3>
+                <div className="bug-grid">
+                  {groupBugs.map((bug) => (
+                    <BugCard key={bug._id} bug={bug} refresh={() => { fetchBugs(pagination.page); fetchStats(); }} />
+                  ))}
+                </div>
+              </div>
+            ))}
+            {teamGroupBy === "assignee" && groupedByAssignee.map(({ key, label, bugs: groupBugs }) => (
+              <div key={key} className="team-bugs-group" style={{ marginBottom: 28 }}>
+                <h3 className="bugs-section-title" style={{ fontSize: 15, marginBottom: 12, display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ background: "var(--bg-card)", color: "var(--text-primary)", padding: "4px 10px", borderRadius: 8, border: "1px solid var(--border)" }}>
+                    {key === "_unassigned" ? "Unassigned" : `Assigned to: ${label}`}
+                  </span>
+                  <span style={{ fontSize: 12, fontWeight: 500, color: "var(--text-muted)" }}>({groupBugs.length})</span>
+                </h3>
+                <div className="bug-grid">
+                  {groupBugs.map((bug) => (
+                    <BugCard key={bug._id} bug={bug} refresh={() => { fetchBugs(pagination.page); fetchStats(); }} />
+                  ))}
+                </div>
+              </div>
+            ))}
+            {pagination.totalPages > 1 && (
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 12, marginTop: 24, flexWrap: "wrap" }}>
+                <button type="button" className="btn btn-ghost btn-sm" onClick={() => goToPage(pagination.page - 1)} disabled={pagination.page <= 1}>Previous</button>
+                <span style={{ fontSize: 13, color: "var(--text-muted)" }}>Page {pagination.page} of {pagination.totalPages} ({pagination.total} total)</span>
+                <button type="button" className="btn btn-ghost btn-sm" onClick={() => goToPage(pagination.page + 1)} disabled={pagination.page >= pagination.totalPages}>Next</button>
+              </div>
+            )}
+          </>
         ) : (
           <>
             <div className="bug-grid">

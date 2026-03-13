@@ -106,7 +106,7 @@ function Kanban() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await API.get("/bugs", { params: { limit: 200 } });
+      const res = await API.get("/bugs", { params: { scope: "all", limit: 200 } });
       const data = res.data;
       setBugs(data.bugs ?? (Array.isArray(data) ? data : []));
     } catch (e) {

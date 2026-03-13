@@ -24,7 +24,14 @@ export default function BugDetails() {
   const [form, setForm] = useState({});
   const [saving, setSaving] = useState(false);
   const [teamMembers, setTeamMembers] = useState([]);
+  const [allUsers, setAllUsers] = useState([]);
   const [workTimerBusy, setWorkTimerBusy] = useState(false);
+
+  useEffect(() => {
+    API.get("/users")
+      .then((r) => setAllUsers(Array.isArray(r.data) ? r.data : []))
+      .catch(() => setAllUsers([]));
+  }, []);
 
   useEffect(() => {
     if (!id) return;
@@ -141,7 +148,7 @@ export default function BugDetails() {
                   <input type="number" min={0} step={0.5} className="form-input" value={form.actualTime} onChange={(e) => setForm((f) => ({ ...f, actualTime: e.target.value }))} />
                 </div>
               </div>
-              {teamMembers.length > 0 && (
+              {(teamMembers.length > 0 || allUsers.length > 0) && (
                 <div className="form-group" style={{ marginTop: 12 }}>
                   <label className="form-label">Assign to</label>
                   <select
@@ -150,9 +157,9 @@ export default function BugDetails() {
                     onChange={(e) => setForm((f) => ({ ...f, assignedTo: e.target.value || undefined }))}
                   >
                     <option value="">Unassigned</option>
-                    {teamMembers.map((m) => {
-                      const u = m.user;
-                      const uid = u?._id?.toString() || u;
+                    {(teamMembers.length > 0 ? teamMembers : allUsers).map((m) => {
+                      const u = m?.user ?? m;
+                      const uid = (u?._id ?? u)?.toString?.() || u;
                       const name = u?.name || u?.email || "Unknown";
                       return <option key={uid} value={uid}>{name}</option>;
                     })}
