@@ -1,44 +1,88 @@
-import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useEffect, useState, useCallback } from "react";
+import { useSearchParams } from "react-router-dom";
 import API from "../services/api";
 import BugCard from "../components/BugCard";
 import BugForm from "../components/BugForm";
-import { logout } from "../utils/auth";
-import { useTheme } from "../utils/theme";
+import TeamSelector from "../components/TeamSelector";
+import AppLayout from "../components/AppLayout";
 
-const PRIORITY_FILTERS = ["all", "high", "medium", "low"];
-const STATUS_FILTERS   = ["all", "open", "in-progress", "resolved"];
+const PRIORITY_FILTERS = ["all", "high", "medium", "low", "critical"];
+const STATUS_FILTERS   = ["all", "open", "triaged", "in-progress", "in-review", "testing", "resolved", "closed"];
 const SORT_OPTIONS    = [
-  { value: "newest",  label: "Newest first" },
-  { value: "oldest",  label: "Oldest first" },
+  { value: "newest",    label: "Newest first",   sort: "createdAt", order: "desc" },
+  { value: "oldest",    label: "Oldest first",   sort: "createdAt", order: "asc" },
+  { value: "priority",  label: "Priority",       sort: "priority",  order: "asc" },
+  { value: "duration",  label: "Duration",       sort: "endDate",   order: "desc" },
 ];
 
-const PRIORITY_DOT = { high: "#ef4444", medium: "#eab308", low: "#22c55e" };
+const PRIORITY_DOT = { high: "#ef4444", medium: "#eab308", low: "#22c55e", critical: "#dc2626" };
 
 function Dashboard() {
   const [bugs, setBugs]           = useState([]);
   const [loading, setLoading]     = useState(true);
+  const [stats, setStats]         = useState(null); /* server-side counts: { total, byStatus } */
   const [priorityF, setPriorityF] = useState("all");
   const [statusF, setStatusF]     = useState("all");
   const [search, setSearch]       = useState("");
   const [sortBy, setSortBy]       = useState("newest");
-  const navigate = useNavigate();
-  const { theme, toggleTheme } = useTheme();
+  const [teamId, setTeamId]       = useState("");
+  const [fetchError, setFetchError] = useState(null);
+  const [pagination, setPagination] = useState({ page: 1, limit: 50, total: 0, totalPages: 1 });
+  const [searchParams] = useSearchParams();
+  const view = searchParams.get("view");
 
-  const fetchBugs = async () => {
+  const fetchBugs = useCallback(async (page = 1) => {
+    setLoading(true);
+    setFetchError(null);
     try {
-      const res = await API.get("/bugs");
-      setBugs(res.data);
+      const opt = SORT_OPTIONS.find((o) => o.value === sortBy) || SORT_OPTIONS[0];
+      const scopeMap = { my: "mine", created: "created", team: "team" };
+      const scope = scopeMap[view] || undefined;
+      const params = {
+        ...(scope ? { scope } : {}),
+        ...(teamId ? { teamId } : {}),
+        ...(priorityF !== "all" ? { priority: priorityF } : {}),
+        ...(statusF !== "all" ? { status: statusF } : {}),
+        sort: opt.sort,
+        order: opt.order,
+        page,
+        limit: 50,
+      };
+      const res = await API.get("/bugs", { params });
+      const data = res.data;
+      setBugs(data.bugs ?? (Array.isArray(data) ? data : []));
+      if (data.pagination) setPagination(data.pagination);
     } catch (err) {
-      console.error("Error fetching bugs");
+      const msg = err.response?.status === 401
+        ? "Please sign in again."
+        : err.response?.data?.message || err.message || "Could not load bugs. Check your connection.";
+      setFetchError(msg);
+      setBugs([]);
     } finally {
       setLoading(false);
     }
-  };
+  }, [teamId, priorityF, statusF, sortBy, view]);
 
-  useEffect(() => { fetchBugs(); }, []);
+  /* Fetch server-side stats so counts match current view (scope) */
+  const fetchStats = useCallback(async () => {
+    try {
+      const scopeMap = { my: "mine", created: "created", team: "team" };
+      const scope = scopeMap[view] || undefined;
+      const res = await API.get("/analytics/bugs", { params: scope ? { scope } : {} });
+      const d = res.data;
+      setStats({
+        total: d.total ?? 0,
+        byStatus: d.byStatus ?? {},
+      });
+    } catch {
+      setStats(null);
+    }
+  }, [view]);
 
-  const handleLogout = () => { logout(); navigate("/"); };
+  const goToPage = (p) => { if (p >= 1 && p <= pagination.totalPages) fetchBugs(p); };
+
+  useEffect(() => { fetchBugs(1); }, [fetchBugs]);
+  useEffect(() => { fetchStats(); }, [fetchStats]);
 
   if (loading) {
     return (
@@ -48,84 +92,103 @@ function Dashboard() {
     );
   }
 
-  /* ── Filtering ── */
+  /* ── Client-side search only (team/priority/status are server-side) ── */
   const filtered = bugs.filter((b) => {
-    const matchPriority = priorityF === "all" || (b.priority || "medium") === priorityF;
-    const matchStatus   = statusF   === "all" || (b.status   || "open")   === statusF;
-    const matchSearch   = !search.trim() ||
+    const matchSearch = !search.trim() ||
       b.title.toLowerCase().includes(search.toLowerCase()) ||
       (b.description || "").toLowerCase().includes(search.toLowerCase());
-    return matchPriority && matchStatus && matchSearch;
+    return matchSearch;
   });
+  const sorted = filtered;
 
-  /* ── Sort by date (createdAt) ── */
-  const sorted = [...filtered].sort((a, b) => {
-    const dateA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
-    const dateB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
-    return sortBy === "newest" ? dateB - dateA : dateA - dateB;
-  });
-
-  /* ── Stats (from all bugs) ── */
-  const openCount     = bugs.filter((b) => (b.status || "open") === "open").length;
-  const progressCount = bugs.filter((b) => (b.status || "").toLowerCase() === "in-progress").length;
-  const resolvedCount = bugs.filter((b) => (b.status || "").toLowerCase() === "resolved").length;
+  /* ── Stats: use server-side analytics (normalize keys to lowercase); fallback to current bugs when counts missing ── */
+  const rawByStatus = stats?.byStatus ?? {};
+  const byStatus = Object.fromEntries(
+    Object.entries(rawByStatus).map(([k, v]) => [(k || "open").toLowerCase(), v])
+  );
+  const openCount     = stats ? ((byStatus.open || 0) + (byStatus.triaged || 0)) : bugs.filter((b) => ["open", "triaged"].includes((b.status || "open").toLowerCase())).length;
+  const progressCount = stats ? ((byStatus["in-progress"] || 0) + (byStatus["in-review"] || 0) + (byStatus.testing || 0)) : bugs.filter((b) => ["in-progress", "in-review", "testing"].includes((b.status || "").toLowerCase())).length;
+  const resolvedCount = stats ? (byStatus.resolved || 0) : bugs.filter((b) => (b.status || "").toLowerCase() === "resolved").length;
+  const closedCount   = stats ? (byStatus.closed || 0) : bugs.filter((b) => (b.status || "").toLowerCase() === "closed").length;
+  const totalCount    = stats ? (stats.total ?? 0) : (pagination.total ?? bugs.length);
+  /* If backend returned total but no status breakdown, show counts from current bugs so they add up */
+  const statusSum = openCount + progressCount + resolvedCount + closedCount;
+  const useFallbackCounts = stats && totalCount > 0 && statusSum === 0;
+  const displayOpen     = useFallbackCounts ? bugs.filter((b) => ["open", "triaged"].includes((b.status || "open").toLowerCase())).length : openCount;
+  const displayProgress = useFallbackCounts ? bugs.filter((b) => ["in-progress", "in-review", "testing"].includes((b.status || "").toLowerCase())).length : progressCount;
+  const displayResolved = useFallbackCounts ? bugs.filter((b) => (b.status || "").toLowerCase() === "resolved").length : resolvedCount;
+  const displayClosed   = useFallbackCounts ? bugs.filter((b) => (b.status || "").toLowerCase() === "closed").length : closedCount;
 
   return (
-    <div className="dashboard-layout">
-      {/* Navbar */}
-      <nav className="navbar">
-        <div className="navbar-brand">
-          <div className="navbar-brand-icon">🐛</div>
-          BugTrack
-        </div>
-        <div className="navbar-actions">
-          <button
-            id="theme-toggle"
-            className="btn btn-ghost btn-sm"
-            onClick={toggleTheme}
-            title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
-            style={{ fontSize: "16px", padding: "6px 10px" }}
-          >
-            {theme === "dark" ? "☀️" : "🌙"}
-          </button>
-          <button id="logout-btn" className="btn btn-ghost btn-sm" onClick={handleLogout}>
-            Sign out
-          </button>
-        </div>
-      </nav>
-
-      <div className="dashboard-content">
+    <AppLayout>
+      <div className="dashboard-header">
         {/* Header */}
-        <div className="dashboard-header">
-          <h1>Bug Dashboard</h1>
-          <p>Track, manage and resolve issues across your project</p>
-        </div>
+        <h1>Bug Dashboard</h1>
+        <p>
+          {view === "my"
+            ? "Bugs assigned to you across all projects."
+            : view === "created"
+            ? "Bugs you created."
+            : view === "team"
+            ? "Bugs in your teams."
+            : "All bugs visible to you — created by you, assigned to you, or in your teams."}
+        </p>
+      </div>
+
+      <div>
+        {fetchError && (
+          <div
+            role="alert"
+            style={{
+              padding: "12px 16px",
+              marginBottom: 16,
+              borderRadius: 8,
+              background: "var(--red, #dc2626)",
+              color: "#fff",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              flexWrap: "wrap",
+              gap: 8,
+            }}
+          >
+            <span>{fetchError}</span>
+            <button type="button" className="btn btn-ghost btn-sm" onClick={() => { fetchBugs(1); fetchStats(); }} style={{ color: "#fff", borderColor: "rgba(255,255,255,0.5)" }}>
+              Retry
+            </button>
+          </div>
+        )}
 
         {/* Stats Strip */}
         <div className="stats-strip">
           <div className="stat-chip">
             <span className="stat-dot" style={{ background: "#818cf8" }} />
-            <span className="stat-count">{openCount}</span>
+            <span className="stat-count">{displayOpen}</span>
             <span className="stat-label">Open</span>
           </div>
           <div className="stat-chip">
             <span className="stat-dot" style={{ background: "#eab308" }} />
-            <span className="stat-count">{progressCount}</span>
+            <span className="stat-count">{displayProgress}</span>
             <span className="stat-label">In Progress</span>
           </div>
           <div className="stat-chip">
             <span className="stat-dot" style={{ background: "#22c55e" }} />
-            <span className="stat-count">{resolvedCount}</span>
+            <span className="stat-count">{displayResolved}</span>
             <span className="stat-label">Resolved</span>
           </div>
+          <div className="stat-chip">
+            <span className="stat-dot" style={{ background: "#64748b" }} />
+            <span className="stat-count">{displayClosed}</span>
+            <span className="stat-label">Closed</span>
+          </div>
           <div className="stat-chip" style={{ marginLeft: "auto" }}>
-            <span className="stat-count">{bugs.length}</span>
+            <span className="stat-count">{totalCount}</span>
             <span className="stat-label">Total</span>
           </div>
         </div>
 
         {/* Bug Form */}
-        <BugForm refresh={fetchBugs} />
+        <BugForm refresh={() => { fetchBugs(1); fetchStats(); }} />
 
         {/* ── Filter Bar ── */}
         <div className="filter-bar">
@@ -137,6 +200,12 @@ function Dashboard() {
             onChange={(e) => setSearch(e.target.value)}
           />
 
+          {/* Team filter */}
+          <div className="filter-group">
+            <span className="filter-label">Team</span>
+            <TeamSelector value={teamId} onChange={setTeamId} placeholder="All teams" />
+          </div>
+
           {/* Priority pills */}
           <div className="filter-group">
             <span className="filter-label">Priority</span>
@@ -144,12 +213,12 @@ function Dashboard() {
               <button
                 key={p}
                 className={`filter-pill ${priorityF === p ? "filter-pill-active" : ""}`}
-                style={p !== "all" && priorityF === p
+                style={p !== "all" && priorityF === p && PRIORITY_DOT[p]
                   ? { borderColor: PRIORITY_DOT[p], color: PRIORITY_DOT[p], background: `${PRIORITY_DOT[p]}18` }
                   : {}}
                 onClick={() => setPriorityF(p)}
               >
-                {p !== "all" && (
+                {p !== "all" && PRIORITY_DOT[p] && (
                   <span style={{
                     width: 7, height: 7, borderRadius: "50%",
                     background: PRIORITY_DOT[p], display: "inline-block", marginRight: 5
@@ -200,10 +269,10 @@ function Dashboard() {
           </div>
 
           {/* Active count */}
-          {(priorityF !== "all" || statusF !== "all" || search) && (
+          {(priorityF !== "all" || statusF !== "all" || search || teamId) && (
             <button
               className="filter-clear"
-              onClick={() => { setPriorityF("all"); setStatusF("all"); setSearch(""); }}
+              onClick={() => { setPriorityF("all"); setStatusF("all"); setSearch(""); setTeamId(""); }}
             >
               ✕ Clear filters
             </button>
@@ -226,14 +295,39 @@ function Dashboard() {
             </p>
           </div>
         ) : (
-          <div className="bug-grid">
-            {sorted.map((bug) => (
-              <BugCard key={bug._id} bug={bug} refresh={fetchBugs} />
-            ))}
-          </div>
+          <>
+            <div className="bug-grid">
+              {sorted.map((bug) => (
+                <BugCard key={bug._id} bug={bug} refresh={() => { fetchBugs(pagination.page); fetchStats(); }} />
+              ))}
+            </div>
+            {pagination.totalPages > 1 && (
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 12, marginTop: 24, flexWrap: "wrap" }}>
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-sm"
+                  onClick={() => goToPage(pagination.page - 1)}
+                  disabled={pagination.page <= 1}
+                >
+                  Previous
+                </button>
+                <span style={{ fontSize: 13, color: "var(--text-muted)" }}>
+                  Page {pagination.page} of {pagination.totalPages} ({pagination.total} total)
+                </span>
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-sm"
+                  onClick={() => goToPage(pagination.page + 1)}
+                  disabled={pagination.page >= pagination.totalPages}
+                >
+                  Next
+                </button>
+              </div>
+            )}
+          </>
         )}
       </div>
-    </div>
+    </AppLayout>
   );
 }
 

@@ -1,15 +1,32 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import API from "../services/api";
+import TeamSelector from "./TeamSelector";
+import { getTeamMembers } from "../services/teamService";
 
-const PRIORITIES = ["low", "medium", "high"];
+const PRIORITIES = ["low", "medium", "high", "critical"];
 
 function BugForm({ refresh }) {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [priority, setPriority] = useState("medium");
+  const [teamId, setTeamId] = useState("");
+  const [assignedTo, setAssignedTo] = useState("");
+  const [teamMembers, setTeamMembers] = useState([]);
   const [loading, setLoading] = useState(false);
 
   const [isOpen, setIsOpen] = useState(false);
+
+  useEffect(() => {
+    if (!teamId) {
+      setTeamMembers([]);
+      setAssignedTo("");
+      return;
+    }
+    getTeamMembers(teamId)
+      .then(setTeamMembers)
+      .catch(() => setTeamMembers([]));
+    setAssignedTo("");
+  }, [teamId]);
 
   const createBug = async (e) => {
     e.preventDefault();
@@ -17,11 +34,16 @@ function BugForm({ refresh }) {
 
     setLoading(true);
     try {
-      await API.post("/bugs", { title, description, priority });
+      const body = { title, description, priority };
+      if (teamId) body.teamId = teamId;
+      if (assignedTo) body.assignedTo = assignedTo;
+      await API.post("/bugs", body);
       setTitle("");
       setDescription("");
       setPriority("medium");
-      setIsOpen(false); // Close the form on successful report
+      setTeamId("");
+      setAssignedTo("");
+      setIsOpen(false);
       refresh();
     } catch (err) {
       console.error("Error creating bug");
@@ -77,6 +99,32 @@ function BugForm({ refresh }) {
               </select>
             </div>
           </div>
+
+          <div className="form-group" style={{ marginTop: "14px" }}>
+            <label className="form-label">Team <span style={{ color: "var(--text-muted)" }}>(optional)</span></label>
+            <TeamSelector value={teamId} onChange={setTeamId} placeholder="Personal (no team)" />
+          </div>
+
+          {teamId && teamMembers.length > 0 && (
+            <div className="form-group" style={{ marginTop: "14px" }}>
+              <label className="form-label">Assign to <span style={{ color: "var(--text-muted)" }}>(optional)</span></label>
+              <select
+                className="form-input"
+                value={assignedTo}
+                onChange={(e) => setAssignedTo(e.target.value)}
+              >
+                <option value="">Unassigned</option>
+                {teamMembers.map((m) => {
+                  const u = m.user;
+                  const uid = u?._id?.toString() || u;
+                  const name = u?.name || u?.email || "Unknown";
+                  return (
+                    <option key={uid} value={uid}>{name}</option>
+                  );
+                })}
+              </select>
+            </div>
+          )}
 
           <div className="form-group" style={{ marginTop: "14px" }}>
             <label className="form-label">Description <span style={{ color: "var(--text-muted)" }}>(optional)</span></label>

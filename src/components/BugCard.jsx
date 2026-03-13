@@ -1,16 +1,19 @@
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import API from "../services/api";
 
 const STATUS_CLASS = {
   open:          "badge-open",
   "in-progress": "badge-progress",
   resolved:      "badge-resolved",
+  closed:        "badge-closed",
 };
 
 const PRIORITY_COLOR = {
-  high:   "#ef4444",
-  medium: "#eab308",
-  low:    "#22c55e",
+  high:     "#ef4444",
+  medium:   "#eab308",
+  low:      "#22c55e",
+  critical: "#dc2626",
 };
 
 function BugCard({ bug, refresh }) {
@@ -103,6 +106,7 @@ function BugCard({ bug, refresh }) {
               <option value="open">Open</option>
               <option value="in-progress">In Progress</option>
               <option value="resolved">Resolved</option>
+              <option value="closed">Closed</option>
             </select>
           </div>
         </div>
@@ -128,7 +132,9 @@ function BugCard({ bug, refresh }) {
   return (
     <div className="bug-card">
       <div className="bug-card-header">
-        <span className="bug-card-title">{bug.title}</span>
+        <Link to={`/bugs/${bug._id}`} className="bug-card-title" style={{ textDecoration: "none", color: "inherit", flex: 1, minWidth: 0 }}>
+          {bug.title}
+        </Link>
         <span className={`badge ${statusClass}`} style={{ flexShrink: 0 }}>
           {bug.status || "open"}
         </span>
@@ -136,6 +142,14 @@ function BugCard({ bug, refresh }) {
 
       {bug.description && (
         <p className="bug-card-desc">{bug.description}</p>
+      )}
+
+      {(bug.assignedTo || bug.teamId) && (
+        <div style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 8 }}>
+          {bug.assignedTo && <span>Assigned to {bug.assignedTo.name}</span>}
+          {bug.assignedTo && bug.teamId && " · "}
+          {bug.teamId && <span>Team: {bug.teamId.name}</span>}
+        </div>
       )}
 
       <div className="bug-card-footer">

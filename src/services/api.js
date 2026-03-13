@@ -1,15 +1,16 @@
 import axios from "axios";
 import { logout } from "../utils/auth";
+import { API_BASE_URL } from "../config/api";
 
 const API = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || "https://bug-track-backend-jz4l.onrender.com/api",
+  baseURL: API_BASE_URL,
 });
 
-/* ── Attach JWT to every request ── */
+/* ── Attach JWT as Bearer to every request ── */
 API.interceptors.request.use((config) => {
   const token = localStorage.getItem("token");
   if (token) {
-    config.headers.Authorization = token;
+    config.headers.Authorization = token.startsWith("Bearer ") ? token : `Bearer ${token}`;
   }
   return config;
 });
